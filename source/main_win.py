@@ -8,6 +8,7 @@ from tkinter import *
 from tkinter import font as tkfont
 from tkinter import messagebox
 from PIL import Image, ImageTk
+import secure_delete
 BG_COLOR = "#1a1a1a"
 BG_SECONDARY = "#2a2a2a"
 BUTTON_COLOR = "#2a2a2a"
@@ -102,8 +103,7 @@ class SatelliteApp:
         buttons_frame.grid_rowconfigure(1, weight=1, uniform="row")
         btn1 = self.create_button(buttons_frame, "ПРОВЕРИТЬ ФАЙЛ", "filee",
                                   lambda: self.placeholder("Проверить файл"))
-        btn2 = self.create_button(buttons_frame, "БЕЗВОЗВРАТНОЕ УДАЛЕНИЕ", "rubish",
-                                  lambda: self.placeholder("Безвозвратное удаление"))
+        btn2 = self.create_button(buttons_frame, "БЕЗВОЗВРАТНОЕ УДАЛЕНИЕ", "rubish", lambda: secure_delete.secure_delete_file())
         btn3 = self.create_button(buttons_frame, "ЗАЩИЩЕННАЯ ПЕСОЧНИЦА", "sand",
                                   lambda: self.placeholder("Защищенная песочница"))
         btn4 = self.create_button(buttons_frame, "ШИФРОВАНИЕ/ДЕШИФРОВАНИЕ ФАЙЛОВ\nС ПОМОЩЬЮ ФЛЕШКИ", "flash",
