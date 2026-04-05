@@ -9,6 +9,7 @@ from tkinter import font as tkfont
 from tkinter import messagebox
 from PIL import Image, ImageTk
 import secure_delete
+import CombineAntivirus
 BG_COLOR = "#1a1a1a"
 BG_SECONDARY = "#2a2a2a"
 BUTTON_COLOR = "#2a2a2a"
@@ -42,6 +43,18 @@ atexit.register(cleanup_temp_files)
 class SatelliteApp:
     def __init__(self):
         self.win = Tk()
+        try:
+            icon_path = resource_path("ico.png")
+            if os.path.exists(icon_path):
+                temp_icon = extract_temp_image(icon_path)
+                if temp_icon and os.path.exists(temp_icon):
+                    img = Image.open(temp_icon)
+                    img = img.resize((32, 32), Image.Resampling.LANCZOS)
+                    icon = ImageTk.PhotoImage(img)
+                    self.win.iconphoto(True, icon)
+                    self.icon = icon
+        except Exception:
+            pass
         self.win.title("satellite")
         self.win.configure(bg=BG_COLOR)
         self.win.attributes('-fullscreen', True)
@@ -101,8 +114,7 @@ class SatelliteApp:
         buttons_frame.grid_columnconfigure(1, weight=1, uniform="col")
         buttons_frame.grid_rowconfigure(0, weight=1, uniform="row")
         buttons_frame.grid_rowconfigure(1, weight=1, uniform="row")
-        btn1 = self.create_button(buttons_frame, "ПРОВЕРИТЬ ФАЙЛ", "filee",
-                                  lambda: self.placeholder("Проверить файл"))
+        btn1 = self.create_button(buttons_frame, "ПРОВЕРИТЬ ФАЙЛ", "filee",lambda: [self.win.update_idletasks(), CombineAntivirus.open_antivirus(self.win)])
         btn2 = self.create_button(buttons_frame, "БЕЗВОЗВРАТНОЕ УДАЛЕНИЕ", "rubish", lambda: secure_delete.secure_delete_file())
         btn3 = self.create_button(buttons_frame, "ЗАЩИЩЕННАЯ ПЕСОЧНИЦА", "sand",
                                   lambda: self.placeholder("Защищенная песочница"))
