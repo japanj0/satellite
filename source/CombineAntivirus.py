@@ -4,9 +4,10 @@ import hashlib
 import threading
 from tkinter import *
 from tkinter import font as tkfont
-from tkinter import filedialog, messagebox
+from tkinter import filedialog
 import pefile
 import yara
+from secure_delete import secure_delete_file
 BG_COLOR = "#1a1a1a"
 BG_SECONDARY = "#2a2a2a"
 BUTTON_COLOR = "#2a2a2a"
@@ -118,22 +119,15 @@ class AntivirusScanner:
             'total_checks': 3,
             'detected_methods': results
         }
-class AntivirusWindow:
-    def __init__(self, parent=None):
-        self.parent = parent
-        if parent is None:
-            self.root = Tk()
-            self.win = self.root
-        else:
-            self.win = Toplevel(parent)
-        self.win.title("satellite - Антивирус")
-        self.win.configure(bg=BG_COLOR)
-        self.win.attributes('-fullscreen', True)
-        self.setup_fonts()
-        self.create_interface()
+class AntivirusFrame(Frame):
+    def __init__(self, parent, on_back):
+        super().__init__(parent, bg=BG_COLOR)
+        self.on_back = on_back
         self.scanner = None
         self.selected_file = None
         self.scan_result = None
+        self.setup_fonts()
+        self.create_interface()
     def setup_fonts(self):
         try:
             self.title_font = tkfont.Font(family=FONT_FAMILY, size=72, weight="bold")
@@ -146,7 +140,7 @@ class AntivirusWindow:
             self.text_font = tkfont.Font(size=24, weight="bold")
             self.result_font = tkfont.Font(size=28, weight="bold")
     def create_interface(self):
-        main_frame = Frame(self.win, bg=BG_COLOR)
+        main_frame = Frame(self, bg=BG_COLOR)
         main_frame.pack(fill=BOTH, expand=True, padx=80, pady=50)
         title_frame = Frame(main_frame, bg=BG_COLOR)
         title_frame.pack(pady=(40, 60))
@@ -170,7 +164,7 @@ class AntivirusWindow:
                                   activebackground=BUTTON_ACTIVE_COLOR,
                                   activeforeground=BUTTON_TEXT_COLOR,
                                   relief=FLAT, bd=0, padx=20, pady=10,
-                                  command=self.close_window)
+                                  command=self.on_back)
         self.back_button.pack(expand=True)
         self.show_select_file()
     def clear_content(self):
@@ -191,18 +185,18 @@ class AntivirusWindow:
         self.file_label = Label(self.content_frame, text="", font=self.button_font, fg=TITLE_COLOR, bg=BG_COLOR)
         self.file_label.pack(pady=10)
     def select_file(self):
-        file_path = filedialog.askopenfilename(title="Выберите файл для проверки", parent=self.win)
+        file_path = filedialog.askopenfilename(title="Выберите файл для проверки", parent=self)
         if file_path:
             self.selected_file = file_path
             self.file_label.config(text=f"Файл: {os.path.basename(file_path)}")
             self.select_button.config(state=DISABLED, text="ПРОВЕРКА...")
-            self.win.update_idletasks()
+            self.update_idletasks()
             if self.scanner is None:
                 self.scanner = AntivirusScanner()
             threading.Thread(target=self.run_scan, daemon=True).start()
     def run_scan(self):
         self.scan_result = self.scanner.scan(self.selected_file)
-        self.win.after(0, self.show_result)
+        self.after(0, self.show_result)
     def show_result(self):
         self.clear_content()
         file_hash = self.scanner.hash_scanner.get_sha256(self.selected_file)
@@ -255,28 +249,17 @@ class AntivirusWindow:
                                    relief=FLAT, bd=0, padx=40, pady=15,
                                    command=self.rescan)
         scan_again_button.pack(pady=15)
+    def delete_file(self):
+        success = secure_delete_file(self.selected_file, show_dialog=False)
+        if success:
+            self.rescan()
     def rescan(self):
         self.scanner = None
         self.selected_file = None
         self.scan_result = None
         self.show_select_file()
-    def delete_file(self):
-        try:
-            if not os.path.exists(self.selected_file):
-                messagebox.showerror("Ошибка", "Файл уже не существует")
-                return
-            file_size = os.path.getsize(self.selected_file)
-            with open(self.selected_file, 'wb') as f:
-                for _ in range(3):
-                    f.seek(0)
-                    f.write(os.urandom(file_size))
-                    f.flush()
-            os.remove(self.selected_file)
-            messagebox.showinfo("Успех", "Файл безвозвратно удален!")
-            self.rescan()
-        except Exception as e:
-            messagebox.showerror("Ошибка", f"Не удалось удалить файл: {str(e)}")
-    def close_window(self):
-        self.win.destroy()
-def open_antivirus(parent=None):
-    app = AntivirusWindow(parent)
+def open_antivirus(parent, on_back):
+    for widget in parent.winfo_children():
+        widget.destroy()
+    frame = AntivirusFrame(parent, on_back)
+    frame.pack(fill="both", expand=True)

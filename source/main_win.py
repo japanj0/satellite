@@ -10,6 +10,7 @@ from tkinter import messagebox
 from PIL import Image, ImageTk
 import secure_delete
 import CombineAntivirus
+import flash_encryption
 BG_COLOR = "#1a1a1a"
 BG_SECONDARY = "#2a2a2a"
 BUTTON_COLOR = "#2a2a2a"
@@ -68,6 +69,11 @@ class SatelliteApp:
         except Exception:
             self.title_font = tkfont.Font(size=72, weight="bold")
             self.button_font = tkfont.Font(size=16, weight="bold")
+
+    def restore_main_interface(self):
+        for widget in self.win.winfo_children():
+            widget.destroy()
+        self.create_main_interface()
     def load_images(self):
         self.images = {}
         icon_names = ["filee", "rubish", "sand", "flash"]
@@ -114,12 +120,12 @@ class SatelliteApp:
         buttons_frame.grid_columnconfigure(1, weight=1, uniform="col")
         buttons_frame.grid_rowconfigure(0, weight=1, uniform="row")
         buttons_frame.grid_rowconfigure(1, weight=1, uniform="row")
-        btn1 = self.create_button(buttons_frame, "ПРОВЕРИТЬ ФАЙЛ", "filee",lambda: [self.win.update_idletasks(), CombineAntivirus.open_antivirus(self.win)])
+        btn1 = self.create_button(buttons_frame, "ПРОВЕРИТЬ ФАЙЛ", "filee",lambda: CombineAntivirus.open_antivirus(self.win, self.restore_main_interface))
         btn2 = self.create_button(buttons_frame, "БЕЗВОЗВРАТНОЕ УДАЛЕНИЕ", "rubish", lambda: secure_delete.secure_delete_file())
         btn3 = self.create_button(buttons_frame, "ЗАЩИЩЕННАЯ ПЕСОЧНИЦА", "sand",
                                   lambda: self.placeholder("Защищенная песочница"))
         btn4 = self.create_button(buttons_frame, "ШИФРОВАНИЕ/ДЕШИФРОВАНИЕ ФАЙЛОВ\nС ПОМОЩЬЮ ФЛЕШКИ", "flash",
-                                  lambda: self.placeholder("Шифрование с флешки"))
+                                  lambda: flash_encryption.show_encryption_interface(self.win, self.restore_main_interface))
         btn1.grid(row=0, column=0, padx=25, pady=25, sticky="nsew")
         btn2.grid(row=0, column=1, padx=25, pady=25, sticky="nsew")
         btn3.grid(row=1, column=0, padx=25, pady=25, sticky="nsew")
