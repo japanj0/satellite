@@ -11,6 +11,7 @@ from PIL import Image, ImageTk
 import secure_delete
 import CombineAntivirus
 import flash_encryption
+import watcher
 BG_COLOR = "#1a1a1a"
 BG_SECONDARY = "#2a2a2a"
 BUTTON_COLOR = "#2a2a2a"
@@ -122,8 +123,8 @@ class SatelliteApp:
         buttons_frame.grid_rowconfigure(1, weight=1, uniform="row")
         btn1 = self.create_button(buttons_frame, "ПРОВЕРИТЬ ФАЙЛ", "filee",lambda: CombineAntivirus.open_antivirus(self.win, self.restore_main_interface))
         btn2 = self.create_button(buttons_frame, "БЕЗВОЗВРАТНОЕ УДАЛЕНИЕ", "rubish", lambda: secure_delete.secure_delete_file())
-        btn3 = self.create_button(buttons_frame, "ЗАЩИЩЕННАЯ ПЕСОЧНИЦА", "sand",
-                                  lambda: self.placeholder("Защищенная песочница"))
+        btn3 = self.create_button(buttons_frame, "Мониторинг чувствительных директорий".upper(), "sand",
+                                  lambda: watcher.open_file_monitor(self.win, self.restore_main_interface))
         btn4 = self.create_button(buttons_frame, "ШИФРОВАНИЕ/ДЕШИФРОВАНИЕ ФАЙЛОВ\nС ПОМОЩЬЮ ФЛЕШКИ", "flash",
                                   lambda: flash_encryption.show_encryption_interface(self.win, self.restore_main_interface))
         btn1.grid(row=0, column=0, padx=25, pady=25, sticky="nsew")
