@@ -1,9 +1,10 @@
 import os
 import ctypes
+import shutil
 import base64
 import threading
 import time
-from tkinter import filedialog, ttk, Label, Button, Frame
+from tkinter import filedialog, ttk, Label, Button, Frame, Entry, StringVar, messagebox
 from tkinter import font as tkfont
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 import wmi
@@ -18,8 +19,9 @@ TITLE_COLOR = "#3a6ea5"
 BUTTON_TEXT_COLOR = "#2a4a7a"
 FONT_FAMILY = "Segoe UI"
 SYSTEM_KEY_DIR = "C:/satellite"
-FLASH_HIDDEN_FOLDER = "System Volume Information"
+FLASH_HIDDEN_FOLDER = "satellite_key"
 KEY_FILENAME = "master.stllite"
+PASS_FILENAME = "pass.stllite"
 CHUNK_SIZE = 64 * 1024
 def hide_folder(folder_path):
     try:
@@ -71,6 +73,7 @@ class USBDetector:
 class FlashEncryption:
     def __init__(self):
         self.system_key_path = os.path.join(SYSTEM_KEY_DIR, KEY_FILENAME)
+        self.system_pass_path = os.path.join(SYSTEM_KEY_DIR, PASS_FILENAME)
         self.flash_drive = None
         self.master_key = None
     def _ensure_system_folder(self):
@@ -88,16 +91,28 @@ class FlashEncryption:
         return part1, part2
     def _join_key(self, part1, part2):
         return base64.urlsafe_b64decode(part1) + base64.urlsafe_b64decode(part2)
+    def _delete_key_from_flash(self, flash_drive):
+        flash_hidden_path = os.path.join(flash_drive + "\\", FLASH_HIDDEN_FOLDER)
+        if os.path.exists(flash_hidden_path):
+            try:
+                os.system(f'attrib -h -s "{flash_hidden_path}"')
+                shutil.rmtree(flash_hidden_path)
+                return True
+            except:
+                pass
+        return False
     def _save_key_to_flash(self, flash_drive, key_part):
-        flash_hidden_path = os.path.join(flash_drive, FLASH_HIDDEN_FOLDER)
-        create_hidden_folder(flash_hidden_path)
+        flash_hidden_path = os.path.join(flash_drive + "\\", FLASH_HIDDEN_FOLDER)
+        self._delete_key_from_flash(flash_drive)
+        os.makedirs(flash_hidden_path, exist_ok=True)
         key_file_path = os.path.join(flash_hidden_path, KEY_FILENAME)
         with open(key_file_path, 'w') as f:
             f.write(key_part)
+        hide_folder(flash_hidden_path)
         hide_folder(key_file_path)
         return True
     def _read_key_from_flash(self, flash_drive):
-        flash_hidden_path = os.path.join(flash_drive, FLASH_HIDDEN_FOLDER)
+        flash_hidden_path = os.path.join(flash_drive + "\\", FLASH_HIDDEN_FOLDER)
         key_file_path = os.path.join(flash_hidden_path, KEY_FILENAME)
         if os.path.exists(key_file_path):
             with open(key_file_path, 'r') as f:
@@ -114,6 +129,69 @@ class FlashEncryption:
             with open(self.system_key_path, 'r') as f:
                 return f.read().strip()
         return None
+    def _save_password_to_system(self, password):
+        self._ensure_system_folder()
+        nonce = os.urandom(12)
+        aesgcm = AESGCM(self.master_key)
+        encrypted_pass = aesgcm.encrypt(nonce, password.encode('utf-8'), None)
+        with open(self.system_pass_path, 'wb') as f:
+            f.write(nonce + encrypted_pass)
+        hide_folder(self.system_pass_path)
+        return True
+    def _read_password_from_system(self):
+        if not os.path.exists(self.system_pass_path):
+            return None
+        try:
+            with open(self.system_pass_path, 'rb') as f:
+                data = f.read()
+                nonce = data[:12]
+                encrypted_pass = data[12:]
+                aesgcm = AESGCM(self.master_key)
+                decrypted_pass = aesgcm.decrypt(nonce, encrypted_pass, None)
+                return decrypted_pass.decode('utf-8')
+        except:
+            return None
+    def _cleanup_failed_initialization(self):
+        if os.path.exists(self.system_key_path):
+            try:
+                os.remove(self.system_key_path)
+            except:
+                pass
+        if os.path.exists(self.system_pass_path):
+            try:
+                os.remove(self.system_pass_path)
+            except:
+                pass
+        if os.path.exists(SYSTEM_KEY_DIR):
+            try:
+                shutil.rmtree(SYSTEM_KEY_DIR)
+            except:
+                pass
+        self.master_key = None
+    def delete_key(self, parent_window=None):
+        detector = USBDetector()
+        flash_drive = detector.wait_for_usb(120)
+        if flash_drive is None:
+            return False, "Флешка не обнаружена. Вставьте флешку с ключом."
+        self._delete_key_from_flash(flash_drive)
+        if os.path.exists(self.system_key_path):
+            try:
+                os.remove(self.system_key_path)
+            except:
+                pass
+        if os.path.exists(self.system_pass_path):
+            try:
+                os.remove(self.system_pass_path)
+            except:
+                pass
+        if os.path.exists(SYSTEM_KEY_DIR):
+            try:
+                shutil.rmtree(SYSTEM_KEY_DIR)
+            except:
+                pass
+        self.master_key = None
+        self.flash_drive = None
+        return True, "Ключ и пароль удалены"
     def check_key_integrity(self):
         system_part = self._read_key_from_system()
         if system_part is None:
@@ -128,22 +206,33 @@ class FlashEncryption:
         if len(flash_part.strip()) < 10:
             return "corrupted_flash", "Половина ключа на флешке повреждена"
         return "ok", None
-    def initialize_key(self):
+    def verify_password(self, input_password):
+        if self.master_key is None:
+            return False
+        stored_password = self._read_password_from_system()
+        if stored_password is None:
+            return False
+        return input_password == stored_password
+    def initialize_key(self, password, parent_window=None):
         system_part = self._read_key_from_system()
         if system_part is None:
             full_key = self._generate_master_key()
             flash_part, system_part = self._split_key(full_key)
             self._save_key_to_system(system_part)
+            self.master_key = full_key
+            self._save_password_to_system(password)
             detector = USBDetector()
             flash_drive = detector.wait_for_usb(120)
             if flash_drive is None:
-                if os.path.exists(self.system_key_path):
-                    os.remove(self.system_key_path)
+                self._cleanup_failed_initialization()
                 return False, "Флешка не обнаружена. Инициализация отменена."
-            self._save_key_to_flash(flash_drive, flash_part)
-            self.flash_drive = flash_drive
-            self.master_key = full_key
-            return True, "Ключ успешно создан. Флешка готова к использованию."
+            try:
+                self._save_key_to_flash(flash_drive, flash_part)
+                self.flash_drive = flash_drive
+                return True, "Ключ и пароль успешно созданы. Флешка готова к использованию."
+            except Exception as e:
+                self._cleanup_failed_initialization()
+                return False, f"Ошибка записи на флешку. Возможно нет прав доступа. Инициализация отменена."
         return True, "Ключ уже существует"
     def has_key(self):
         return os.path.exists(self.system_key_path)
@@ -239,6 +328,8 @@ class EncryptionFrame(Frame):
         super().__init__(parent, bg=BG_COLOR)
         self.on_back = on_back
         self.encryption = FlashEncryption()
+        self.current_action = None
+        self.file_path = None
         self.setup_fonts()
         self.create_interface()
     def setup_fonts(self):
@@ -249,6 +340,7 @@ class EncryptionFrame(Frame):
             self.result_font = tkfont.Font(family=FONT_FAMILY, size=28, weight="bold")
             self.status_font = tkfont.Font(family=FONT_FAMILY, size=28, weight="bold")
             self.progress_font = tkfont.Font(family=FONT_FAMILY, size=28, weight="bold")
+            self.input_font = tkfont.Font(family=FONT_FAMILY, size=14)
         except:
             self.title_font = tkfont.Font(size=72, weight="bold")
             self.button_font = tkfont.Font(size=16, weight="bold")
@@ -256,6 +348,7 @@ class EncryptionFrame(Frame):
             self.result_font = tkfont.Font(size=28, weight="bold")
             self.status_font = tkfont.Font(size=12)
             self.progress_font = tkfont.Font(size=10)
+            self.input_font = tkfont.Font(size=14)
     def create_interface(self):
         self.main_frame = Frame(self, bg=BG_COLOR)
         self.main_frame.pack(fill="both", expand=True, padx=80, pady=50)
@@ -286,13 +379,154 @@ class EncryptionFrame(Frame):
                              relief="flat", bd=0, padx=40, pady=30,
                              command=self.decrypt_file)
         decrypt_btn.grid(row=0, column=1, padx=50, pady=50, sticky="nsew")
-        back_btn = Button(self.content_frame, text="← ВЕРНУТЬСЯ", font=self.button_font,
+        bottom_frame = Frame(self.content_frame, bg=BG_COLOR)
+        bottom_frame.pack(side="bottom", pady=20)
+        reset_btn = Button(bottom_frame, text="СБРОСИТЬ КЛЮЧ", font=self.button_font,
+                           bg="#8b0000", fg=TEXT_COLOR,
+                           activebackground="#a00000",
+                           activeforeground=TEXT_COLOR,
+                           relief="flat", bd=0, padx=20, pady=10,
+                           command=self.reset_key)
+        reset_btn.pack(side="left", padx=10)
+        back_btn = Button(bottom_frame, text="← ВЕРНУТЬСЯ", font=self.button_font,
                           bg=BUTTON_COLOR, fg=BUTTON_TEXT_COLOR,
                           activebackground=BUTTON_ACTIVE_COLOR,
                           activeforeground=BUTTON_TEXT_COLOR,
                           relief="flat", bd=0, padx=20, pady=10,
                           command=self.on_back)
-        back_btn.pack(side="bottom", pady=20)
+        back_btn.pack(side="left", padx=10)
+    def reset_key(self):
+        if not self.encryption.has_key():
+            self.show_message("ВНИМАНИЕ", "Ключ не найден", True)
+            return
+        self.current_action = "verify_reset"
+        self.show_password_input("ПОДТВЕРЖДЕНИЕ СБРОСА", "verify_reset", confirm=False)
+    def verify_and_reset(self, password):
+        self.show_progress("ПРОВЕРКА КЛЮЧА, ВСТАВЬТЕ ФЛЕШКУ...")
+        def process():
+            success, msg = self.encryption.load_key_from_flash()
+            if not success:
+                self.after(0, lambda: self.show_message("ОШИБКА", msg, True))
+                return
+            if not self.encryption.verify_password(password):
+                self.after(0, lambda: self.show_message("ОШИБКА", "Неверный пароль", True))
+                return
+            result = messagebox.askyesno("Подтверждение",
+                                         "Вы уверены что хотите сбросить ключ и пароль?\n"
+                                         "Все зашифрованные файлы станут недоступны!\n"
+                                         "Потребуется создать новый ключ и пароль.")
+            if not result:
+                self.after(0, lambda: self.show_main_buttons())
+                return
+            self.after(0, lambda: self.update_status("УДАЛЕНИЕ КЛЮЧА И ПАРОЛЯ..."))
+            success, msg = self.encryption.delete_key(self)
+            self.after(0, lambda: self.show_message("УСПЕХ" if success else "ОШИБКА", msg, not success))
+        threading.Thread(target=process, daemon=True).start()
+    def show_password_input(self, title_text, action, confirm=False):
+        for widget in self.content_frame.winfo_children():
+            widget.destroy()
+        self.current_action = action
+        Label(self.content_frame, text=title_text, font=self.status_font,
+              fg=TEXT_COLOR, bg=BG_COLOR).pack(pady=30)
+        input_frame = Frame(self.content_frame, bg=BG_COLOR)
+        input_frame.pack(expand=True)
+        Label(input_frame, text="Введите пароль:", font=self.input_font,
+              bg=BG_COLOR, fg=TEXT_COLOR).pack(pady=(0, 10))
+        self.password_var = StringVar()
+        self.password_entry = Entry(input_frame, textvariable=self.password_var,
+                                    show="•", font=self.input_font, width=30)
+        self.password_entry.pack(pady=10)
+        self.password_entry.focus()
+        if confirm:
+            Label(input_frame, text="Подтвердите пароль:", font=self.input_font,
+                  bg=BG_COLOR, fg=TEXT_COLOR).pack(pady=(20, 10))
+            self.confirm_var = StringVar()
+            self.confirm_entry = Entry(input_frame, textvariable=self.confirm_var,
+                                       show="•", font=self.input_font, width=30)
+            self.confirm_entry.pack(pady=10)
+        btn_frame = Frame(self.content_frame, bg=BG_COLOR)
+        btn_frame.pack(pady=30)
+        Button(btn_frame, text="ПРОДОЛЖИТЬ", font=self.button_font,
+               bg=BUTTON_COLOR, fg=BUTTON_TEXT_COLOR,
+               activebackground=BUTTON_ACTIVE_COLOR,
+               activeforeground=BUTTON_TEXT_COLOR,
+               relief="flat", bd=0, padx=30, pady=10,
+               command=self.process_password).pack(side="left", padx=10)
+        Button(btn_frame, text="ОТМЕНА", font=self.button_font,
+               bg=BUTTON_COLOR, fg=BUTTON_TEXT_COLOR,
+               activebackground=BUTTON_ACTIVE_COLOR,
+               activeforeground=BUTTON_TEXT_COLOR,
+               relief="flat", bd=0, padx=30, pady=10,
+               command=self.show_main_buttons).pack(side="left", padx=10)
+        self.password_entry.bind('<Return>', lambda e: self.process_password())
+    def process_password(self):
+        password = self.password_var.get()
+        if hasattr(self, 'confirm_var'):
+            if password != self.confirm_var.get():
+                self.show_message("ОШИБКА", "Пароли не совпадают", True)
+                return
+        if not password:
+            self.show_message("ОШИБКА", "Пароль не введен", True)
+            return
+        if self.current_action == "create_key":
+            self.create_new_key(password)
+        elif self.current_action == "create_key_for_encrypt":
+            self.create_new_key(password)
+        elif self.current_action == "create_key_for_decrypt":
+            self.create_new_key(password)
+        elif self.current_action == "verify_encrypt":
+            self.verify_and_encrypt(password)
+        elif self.current_action == "verify_decrypt":
+            self.verify_and_decrypt(password)
+        elif self.current_action == "verify_reset":
+            self.verify_and_reset(password)
+    def create_new_key(self, password):
+        self.show_progress("СОЗДАНИЕ КЛЮЧА, ВСТАВЬТЕ ФЛЕШКУ...")
+        def process():
+            success, msg = self.encryption.initialize_key(password, self)
+            if success:
+                if self.current_action == "create_key_for_encrypt":
+                    self.after(0, lambda: self.continue_after_key_creation("encrypt"))
+                elif self.current_action == "create_key_for_decrypt":
+                    self.after(0, lambda: self.continue_after_key_creation("decrypt"))
+                else:
+                    self.after(0, lambda: self.show_message("УСПЕХ", msg, False))
+            else:
+                self.after(0, lambda: self.show_message("ОШИБКА", msg, True))
+        threading.Thread(target=process, daemon=True).start()
+    def continue_after_key_creation(self, operation):
+        if operation == "encrypt":
+            self.start_encryption()
+        elif operation == "decrypt":
+            self.start_decryption()
+    def verify_and_encrypt(self, password):
+        if not self.encryption.verify_password(password):
+            self.show_message("ОШИБКА", "Неверный пароль", True)
+            return
+        self.show_progress("ШИФРОВАНИЕ...")
+        self.progress_bar.pack(pady=10)
+        self.progress_info.pack()
+        def process():
+            success, msg = self.encryption.encrypt_file(self.file_path, self.update_progress)
+            if success:
+                self.after(0, lambda: self.show_message("УСПЕХ", msg, False))
+            else:
+                self.after(0, lambda: self.show_message("ОШИБКА", msg, True))
+        threading.Thread(target=process, daemon=True).start()
+    def verify_and_decrypt(self, password):
+        if not self.encryption.verify_password(password):
+            self.show_message("ОШИБКА", "Неверный пароль", True)
+            return
+        self.show_progress("ДЕШИФРОВАНИЕ...")
+        self.progress_bar.pack(pady=10)
+        self.progress_info.pack()
+        def process():
+            success, msg = self.encryption.decrypt_file(self.file_path, self.update_progress)
+            if success:
+                self.after(0, lambda: self.show_message("УСПЕХ", msg, False))
+            else:
+                self.after(0, lambda: self.show_message("ОШИБКА", msg, True))
+        threading.Thread(target=process, daemon=True).start()
     def show_progress(self, title_text):
         for widget in self.content_frame.winfo_children():
             widget.destroy()
@@ -329,48 +563,41 @@ class EncryptionFrame(Frame):
         file_path = filedialog.askopenfilename(title="Выберите файл для шифрования", parent=self)
         if not file_path:
             return
-        self.start_encryption(file_path)
+        self.file_path = file_path
+        self.start_encryption()
     def decrypt_file(self):
         file_path = filedialog.askopenfilename(title="Выберите файл для дешифрования",
                                                filetypes=[("Satellite files", "*.satellite")], parent=self)
         if not file_path:
             return
-        self.start_decryption(file_path)
-    def start_encryption(self, file_path):
-        self.show_progress("ПРОВЕРКА КЛЮЧА, ВСТАВЬТЕ ФЛЕШКУ...")
-        def process():
-            success, msg = self.encryption.ensure_valid_key()
-            if not success:
-                self.after(0, lambda: self.show_message("ОШИБКА", msg, True))
-                return
-            self.after(0, lambda: self.update_status("ШИФРОВАНИЕ..."))
-            self.after(0, lambda: self.progress_bar.pack(pady=10))
-            self.after(0, lambda: self.progress_info.pack())
-            success, msg = self.encryption.encrypt_file(file_path, self.update_progress)
-            if success:
-                self.after(0, lambda: self.show_message("УСПЕХ", msg, False))
-            else:
-                self.after(0, lambda: self.show_message("ОШИБКА", msg, True))
-        threading.Thread(target=process, daemon=True).start()
-    def start_decryption(self, file_path):
-        self.show_progress("ЗАГРУЗКА КЛЮЧА, ВСТАВЬТЕ ФЛЕШКУ...")
-        def process():
-            if not self.encryption.has_key():
-                self.after(0, lambda: self.show_message("ОШИБКА", "Ключ не инициализирован.", True))
-                return
-            success, msg = self.encryption.load_key_from_flash()
-            if not success:
-                self.after(0, lambda: self.show_message("ОШИБКА", msg, True))
-                return
-            self.after(0, lambda: self.update_status("ДЕШИФРОВАНИЕ..."))
-            self.after(0, lambda: self.progress_bar.pack(pady=10))
-            self.after(0, lambda: self.progress_info.pack())
-            success, msg = self.encryption.decrypt_file(file_path, self.update_progress)
-            if success:
-                self.after(0, lambda: self.show_message("УСПЕХ", msg, False))
-            else:
-                self.after(0, lambda: self.show_message("ОШИБКА", msg, True))
-        threading.Thread(target=process, daemon=True).start()
+        self.file_path = file_path
+        self.start_decryption()
+    def start_encryption(self):
+        if not self.encryption.has_key():
+            self.current_action = "create_key_for_encrypt"
+            self.show_password_input("СОЗДАНИЕ НОВОГО КЛЮЧА", "create_key_for_encrypt", confirm=True)
+        else:
+            self.show_progress("ПРОВЕРКА КЛЮЧА, ВСТАВЬТЕ ФЛЕШКУ...")
+            def process():
+                success, msg = self.encryption.ensure_valid_key()
+                if not success:
+                    self.after(0, lambda: self.show_message("ОШИБКА", msg, True))
+                    return
+                self.after(0, lambda: self.show_password_input("ПРОВЕРКА ПАРОЛЯ", "verify_encrypt"))
+            threading.Thread(target=process, daemon=True).start()
+    def start_decryption(self):
+        if not self.encryption.has_key():
+            self.current_action = "create_key_for_decrypt"
+            self.show_password_input("СОЗДАНИЕ НОВОГО КЛЮЧА", "create_key_for_decrypt", confirm=True)
+        else:
+            self.show_progress("ЗАГРУЗКА КЛЮЧА, ВСТАВЬТЕ ФЛЕШКУ...")
+            def process():
+                success, msg = self.encryption.load_key_from_flash()
+                if not success:
+                    self.after(0, lambda: self.show_message("ОШИБКА", msg, True))
+                    return
+                self.after(0, lambda: self.show_password_input("ПРОВЕРКА ПАРОЛЯ", "verify_decrypt"))
+            threading.Thread(target=process, daemon=True).start()
 def show_encryption_interface(parent, on_back):
     for widget in parent.winfo_children():
         widget.destroy()

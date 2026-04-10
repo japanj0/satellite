@@ -123,7 +123,7 @@ class SatelliteApp:
         buttons_frame.grid_rowconfigure(1, weight=1, uniform="row")
         btn1 = self.create_button(buttons_frame, "ПРОВЕРИТЬ ФАЙЛ", "filee",lambda: CombineAntivirus.open_antivirus(self.win, self.restore_main_interface))
         btn2 = self.create_button(buttons_frame, "БЕЗВОЗВРАТНОЕ УДАЛЕНИЕ", "rubish", lambda: secure_delete.secure_delete_file())
-        btn3 = self.create_button(buttons_frame, "Мониторинг чувствительных директорий".upper(), "sand",
+        btn3 = self.create_button(buttons_frame, "Мониторинг директорий".upper(), "sand",
                                   lambda: watcher.open_file_monitor(self.win, self.restore_main_interface))
         btn4 = self.create_button(buttons_frame, "ШИФРОВАНИЕ/ДЕШИФРОВАНИЕ ФАЙЛОВ\nС ПОМОЩЬЮ ФЛЕШКИ", "flash",
                                   lambda: flash_encryption.show_encryption_interface(self.win, self.restore_main_interface))

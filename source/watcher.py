@@ -172,7 +172,7 @@ class FileMonitorFrame(Frame):
                              relief=FLAT, bd=0, padx=15, pady=5,
                              command=self.add_default_folders)
         default_btn.pack(fill=X, pady=2)
-        apply_btn = Button(btn_panel, text="ПРИМЕНИТЬ", font=self.button_font,
+        apply_btn = Button(btn_panel, text="ЗАПУСТИТЬ", font=self.button_font,
                            bg=BUTTON_COLOR, fg=BUTTON_TEXT_COLOR,
                            activebackground=BUTTON_ACTIVE_COLOR,
                            activeforeground=BUTTON_TEXT_COLOR,
